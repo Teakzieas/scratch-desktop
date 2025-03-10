@@ -10,9 +10,12 @@ const gpio = window.require(path.join(__static, 'gpiolib.node'))
 const stemhat = window.require(path.join(__static, 'stemhat.node'));
 const device = stemhat.I2ccreateDevice("/dev/i2c-1", 0x08);
 
+
 const i2c = window.require(path.join(__static, 'i2c-bus.js'));
 const oled = window.require(path.join(__static, 'oled.js'));
 const font = window.require(path.join(__static, 'oled-font.js'));
+
+
 
 
 
@@ -40,10 +43,10 @@ var cachedBuzzerValue = 0
 //////////////////////////////////////////////////////////////////
 const i2cBus = i2c.openSync(1);
 const opts = {
-                width: 128,
-                height: 64,
-                address: 0x3C
-             };
+    width: 128,
+    height: 64,
+    address: 0x3C
+};
 
 oledDisplay = new oled(i2cBus, opts);
 oledDisplay.clearDisplay();
@@ -104,6 +107,29 @@ async function GetUltrasonic() {
 
 //////////////////////////////////////////////////////////////////
 
+
+//////////////////////////////////////////////////////////////////
+//APDS9960 MODULE
+//////////////////////////////////////////////////////////////////
+// Set the mode of the APDS-9960 sensor to proximity mode
+let APDSMode = 0;
+const DEVICE_ADDR = 0x39;
+const GESTURE_DATA_REG = 0xFC;
+const GFLVL_REG = 0xAE;
+const GMODE_REG = 0xAB;
+const ENABLE_REG = 0x80;
+const PROXIMITY_REG = 0x9C;
+const GESTURE_MODE_REG = 0xAB;
+
+const APDS9960_GESTURE_THRESHOLD_OUT = 10;
+const APDS9960_GESTURE_SENSITIVITY_1 = 50;
+const APDS9960_GESTURE_SENSITIVITY_2 = 20;
+
+let gesture_ud_delta = 0, gesture_lr_delta = 0;
+let gesture_ud_count = 0, gesture_lr_count = 0;
+let gesture_near_count = 0, gesture_far_count = 0;
+let gesture_state = 0;
+let gesture_motion = "NO_GESTURE";
 
 //Motor Controller
 function scaleTo255(value) {
@@ -215,7 +241,7 @@ class Scratch3PiSTEMHATBlocks {
                         description: 'Stop the buzzer to state'
                     }),
                     blockType: BlockType.COMMAND,
-                    
+
                 },
                 {
                     opcode: 'set_MOTOR',
@@ -322,7 +348,7 @@ class Scratch3PiSTEMHATBlocks {
                             type: ArgumentType.String,
                             menu: 'WRAPs',
                             defaultValue: 'Wrap'
-                        }  
+                        }
                     }
                 },
                 {
@@ -491,7 +517,7 @@ class Scratch3PiSTEMHATBlocks {
                             menu: 'ROWs',
                             defaultValue: '7'
                         }
-                    } 
+                    }
                 },
                 {
                     opcode: 'stop_OLED_Scroll',
@@ -529,7 +555,7 @@ class Scratch3PiSTEMHATBlocks {
                         }
                     }
                 },
-                
+
                 {
                     opcode: 'reset_OLED',
                     text: formatMessage({
@@ -579,7 +605,7 @@ class Scratch3PiSTEMHATBlocks {
                         description: 'get the Temperature'
                     }),
                     blockType: BlockType.REPORTER
-                    
+
                 },
                 {
                     opcode: 'get_humidity',
@@ -589,7 +615,7 @@ class Scratch3PiSTEMHATBlocks {
                         description: 'get the Humidity'
                     }),
                     blockType: BlockType.REPORTER
-                    
+
                 },
                 {
                     opcode: 'get_ultrasonic',
@@ -599,7 +625,50 @@ class Scratch3PiSTEMHATBlocks {
                         description: 'get Ultrasonic Distance in CM'
                     }),
                     blockType: BlockType.REPORTER
-                    
+
+                },
+                {
+                    opcode: 'Set_APDS9960_Mode',
+                    text: formatMessage({
+                        id: 'pistemhat.Set_APDS9960_Mode',
+                        default: 'Set APDS9960 to [MODE]',
+                        description: 'Set APDS9960 Mode'
+                    }),
+                    blockType: BlockType.COMMAND,
+                    arguments: {
+                        MODE: {
+                            type: ArgumentType.String,
+                            menu: 'MODEs',
+                            defaultValue: 'Proximity'
+                        }
+                    }
+                },
+                {
+                    opcode: 'get_proximity',
+                    text: formatMessage({
+                        id: 'pistemhat.get_proximity',
+                        default: 'get Proximity Sensor (0-255)',
+                        description: 'get Proximity Distance in 0-255'
+                    }),
+                    blockType: BlockType.REPORTER
+                },
+                {
+                    opcode: 'get_gesture',
+                    text: formatMessage({
+                        id: 'pistemhat.get_gesture',
+                        default: 'get Gesture',
+                        description: 'get Gesture'
+                    }),
+                    blockType: BlockType.REPORTER
+                },
+                {
+                    opcode: 'get_color',
+                    text: formatMessage({
+                        id: 'pistemhat.get_color',
+                        default: 'get Color',
+                        description: 'get Color'
+                    }),
+                    blockType: BlockType.REPORTER
                 }
             ],
             menus: {
@@ -622,9 +691,9 @@ class Scratch3PiSTEMHATBlocks {
                 ROWs:
                 {
                     acceptReporters: true,
-                    items: ['1', '2', '3', '4','5','6','7']
+                    items: ['1', '2', '3', '4', '5', '6', '7']
                 },
-            
+
                 BUTTONs: {
                     acceptReporters: true,
                     items: ['5', '6']
@@ -647,58 +716,60 @@ class Scratch3PiSTEMHATBlocks {
                 },
                 SCALEs: {
                     acceptReporters: false,
-                    items: ['Fit','Fill', 'No Scaling']
+                    items: ['Fit', 'Fill', 'No Scaling']
                 },
                 SPRITEs: {
                     acceptReporters: false,
                     items: 'getSpriteMenu'
                 },
-                SIZEs:{
+                SIZEs: {
                     acceptReporters: false,
-                    items: ['1','2','3','4']
-                }
+                    items: ['1', '2', '3', '4']
+                },
+                MODEs: {
+                    acceptReporters: false,
+                    items: ['Proximity', 'Gesture', 'Color']
+                },
             }
         };
     }
     getSpriteMenu() {
         // Ensure the runtime is available
-        try{
+        try {
             if (!this.runtime || !this.runtime.targets) {
                 console.warn('Runtime or targets not available.');
                 return ["No Sprite Found"];
             }
-        
+
             // Map through the targets to extract their names
             const sprites = this.runtime.targets
                 .filter(target => target.getName() !== "Stage") // Exclude the "Stage"
                 .map(target => target.getName());
-    
+
             if (sprites.length === 0) {
                 return ["No Sprite Found"];
             } else {
                 return sprites;
             }
 
-        }catch(e){
+        } catch (e) {
             console.error(e);
             return ["No Sprite Found"];
         }
-       
+
     }
 
 
-    when_buttonPressed(args) 
-    {
-        
-        
+    when_buttonPressed(args) {
+
+
         const pin = Cast.toNumber(args.BUTTON);
         const state = gpio.get(pin, 0, 2); // Get state of pin, leave pin as input/output, leave pull state
         let binary = 0;
         return state == binary
     }
-    
-    set_LED(args) 
-    {
+
+    set_LED(args) {
         const colour = Cast.toRgbColorList(args.COLOUR);
         var register1 = 0x00;
         var register2 = 0x00;
@@ -720,12 +791,11 @@ class Scratch3PiSTEMHATBlocks {
 
     set_BUZZER(args) {
         const frequency = Cast.toNumber(args.FREQ);
-        if(cachedBuzzerValue !== frequency)
-        {
-            stemhat.I2cwriteToRegister(device, 0x13, Math.floor(frequency/10));
+        if (cachedBuzzerValue !== frequency) {
+            stemhat.I2cwriteToRegister(device, 0x13, Math.floor(frequency / 10));
             cachedBuzzerValue = frequency;
         }
-        
+
 
     }
     stop_BUZZER(args) {
@@ -733,8 +803,7 @@ class Scratch3PiSTEMHATBlocks {
         cachedBuzzerValue = -1;
     }
 
-    stop_MOTOR(args) 
-    {
+    stop_MOTOR(args) {
         var M1A = 0x05;
         var M1B = 0x06;
         var M2A = 0x07;
@@ -757,8 +826,7 @@ class Scratch3PiSTEMHATBlocks {
 
     }
 
-    set_MOTOR(args) 
-    {
+    set_MOTOR(args) {
         var M1A = 0x05;
         var M1B = 0x06;
         var M2A = 0x07;
@@ -791,7 +859,7 @@ class Scratch3PiSTEMHATBlocks {
             if (Cast.toString(args.MOTOR) == "Left Motor") {
                 stemhat.I2cwriteToRegister(device, M1A, 0);
                 stemhat.I2cwriteToRegister(device, M1B, scaleTo255(MotorSpeed1));
- 
+
             }
             else if (Cast.toString(args.MOTOR) == "Right Motor") {
                 stemhat.I2cwriteToRegister(device, M2A, 0);
@@ -805,15 +873,14 @@ class Scratch3PiSTEMHATBlocks {
             }
         }
         else {
-            stemhat.I2cwriteToRegister(device, M1A, 0); 
+            stemhat.I2cwriteToRegister(device, M1A, 0);
             stemhat.I2cwriteToRegister(device, M1B, 0);
             stemhat.I2cwriteToRegister(device, M2A, 0);
             stemhat.I2cwriteToRegister(device, M2B, 0);
         }
     }
 
-    set_MOTOR_EACH(args)
-    {
+    set_MOTOR_EACH(args) {
         var M1A = 0x05;
         var M1B = 0x06;
         var M2A = 0x07;
@@ -831,7 +898,7 @@ class Scratch3PiSTEMHATBlocks {
             stemhat.I2cwriteToRegister(device, M1A, scaleTo255(MotorSpeed1));
             stemhat.I2cwriteToRegister(device, M1B, 0);
         }
-        else if (MotorSpeed1 < 0) {     
+        else if (MotorSpeed1 < 0) {
             MotorSpeed1 = MotorSpeed1 * -1
             stemhat.I2cwriteToRegister(device, M1A, 0);
             stemhat.I2cwriteToRegister(device, M1B, scaleTo255(MotorSpeed1));
@@ -857,8 +924,7 @@ class Scratch3PiSTEMHATBlocks {
         }
     }
 
-    set_SERVO(args) 
-    {
+    set_SERVO(args) {
         var Servo1 = 0x01;
         var Servo2 = 0x02;
         var Servo3 = 0x03;
@@ -882,9 +948,8 @@ class Scratch3PiSTEMHATBlocks {
         }
 
     }
-    
-    async set_OLED_Text(args)
-    {
+
+    async set_OLED_Text(args) {
         const text = Cast.toString(args.TEXT);
         const x = Cast.toNumber(args.X1);
         const y = Cast.toNumber(args.Y1);
@@ -900,9 +965,8 @@ class Scratch3PiSTEMHATBlocks {
         await oledDisplay.setCursor(x, y);
         await oledDisplay.writeString(font, size, text, 1, wrap1);
     }
-    
-    async set_OLED_Pixel(args)
-    {
+
+    async set_OLED_Pixel(args) {
         const x = Cast.toNumber(args.X1);
         const y = Cast.toNumber(args.Y1);
         const state = Cast.toString(args.STATE);
@@ -914,25 +978,23 @@ class Scratch3PiSTEMHATBlocks {
             state1 = 0;
         }
         await oledDisplay.drawPixel([[x, y, state1]]);
-        
+
 
     }
 
-    async set_OLED_Circle(args)
-    {
+    async set_OLED_Circle(args) {
         const centerX = Cast.toNumber(args.X1);
         const centerY = Cast.toNumber(args.Y1);
         const radius = Cast.toNumber(args.RADIUS);
         const solid = Cast.toString(args.SOLID);
         var solid1 = 0;
-        if(solid == "Solid"){
+        if (solid == "Solid") {
             solid1 = 1
         }
-        await oledDisplay.drawCircle(centerX, centerY, radius,1,solid1);
+        await oledDisplay.drawCircle(centerX, centerY, radius, 1, solid1);
     }
 
-    async set_OLED_Line(args)
-    {
+    async set_OLED_Line(args) {
         const x1 = Cast.toNumber(args.X1);
         const y1 = Cast.toNumber(args.Y1);
         const x2 = Cast.toNumber(args.X2);
@@ -940,8 +1002,7 @@ class Scratch3PiSTEMHATBlocks {
         await oledDisplay.drawLine(x1, y1, x2, y2, 1);
     }
 
-    async set_OLED_Rectangle(args)
-    {
+    async set_OLED_Rectangle(args) {
         const x = Cast.toNumber(args.X1);
         const y = Cast.toNumber(args.Y1);
         const width = Cast.toNumber(args.WIDTH);
@@ -954,64 +1015,53 @@ class Scratch3PiSTEMHATBlocks {
         await oledDisplay.drawRect(x, y, width, height, 1, solid1);
     }
 
-    async set_OLED_Sprite(args)
-    {
-        try
-        {
+    async set_OLED_Sprite(args) {
+        try {
             const x = Cast.toNumber(args.X);
             const y = Cast.toNumber(args.Y);
             const Scale = Cast.toString(args.SCALE);
             const spriteName = Cast.toString(args.SPRITE);
-            
-            if(Scale == "Fit")
-            {
-                await oledDisplay.DrawSpriteBitmap(this.runtime,spriteName,x,y,2);
+
+            if (Scale == "Fit") {
+                await oledDisplay.DrawSpriteBitmap(this.runtime, spriteName, x, y, 2);
             }
-            else if(Scale == "Fill")
-            {
-                await oledDisplay.DrawSpriteBitmap(this.runtime,spriteName,x,y,1);
+            else if (Scale == "Fill") {
+                await oledDisplay.DrawSpriteBitmap(this.runtime, spriteName, x, y, 1);
             }
-            else
-            {
-                await oledDisplay.DrawSpriteBitmap(this.runtime,spriteName,x,y,0);
+            else {
+                await oledDisplay.DrawSpriteBitmap(this.runtime, spriteName, x, y, 0);
             }
-        }catch(error)
-        {
+        } catch (error) {
             console.log("Error: " + error);
-        }      
+        }
     }
 
-    async stop_OLED_Scroll(args)
-    {   
+    async stop_OLED_Scroll(args) {
         await oledDisplay.stopScroll();
     }
 
-    async set_OLED_Scroll(args)
-    {
-        const dir= Cast.toString(args.DIR);
+    async set_OLED_Scroll(args) {
+        const dir = Cast.toString(args.DIR);
         const top = Cast.toNumber(args.TOP);
         const end = Cast.toNumber(args.END);
         await oledDisplay.startScroll(dir, top, end);
     }
 
-    async reset_OLED_section(args)
-    {
+    async reset_OLED_section(args) {
         const x = Cast.toNumber(args.X);
         const y = Cast.toNumber(args.Y);
         const height = Cast.toNumber(args.HEIGHT);
         const width = Cast.toNumber(args.WIDTH);
-        
+
         await oledDisplay.drawRect(x, y, width, height, 0, 1);
     }
-    
 
-    async reset_OLED(args)
-    {
+
+    async reset_OLED(args) {
         await oledDisplay.clearDisplay();
     }
 
-    get_button(args) 
-    {
+    get_button(args) {
         const pin = Cast.toNumber(args.BUTTON);
         const state = gpio.get(pin, 0, 2); // Get state of pin, leave pin as input/output, leave pull state
         let binary = 0;
@@ -1019,8 +1069,7 @@ class Scratch3PiSTEMHATBlocks {
     }
 
 
-    get_analog(args) 
-    {
+    get_analog(args) {
         var register = 0x00;
 
         if (Cast.toString(args.ANALOG) == "AN0") {
@@ -1035,51 +1084,156 @@ class Scratch3PiSTEMHATBlocks {
         if (Cast.toString(args.ANALOG) == "Vin Voltage") {
             register = 0x12;
         }
-        
-        
-        
+
+
+
         let readings = [];
-        for (let i = 0; i < 3; i++) 
-        {
-			let value1 = stemhat.I2creadFromRegister(device, register);
+        for (let i = 0; i < 3; i++) {
+            let value1 = stemhat.I2creadFromRegister(device, register);
             readings.push(value1);
         }
         let mean = readings.reduce((a, b) => a + b, 0) / readings.length;
         let threshold = 5;
         let validReadings = readings.filter(value => Math.abs(value - mean) <= threshold);
-		return validReadings[0];
+        return validReadings[0];
     }
 
-    get_temp(args)
-    {
+    get_temp(args) {
         const currentTime = Date.now();
         if (currentTime - lastReadTime3 > 500) {
             GetAHT20();
             lastReadTime3 = currentTime;
         }
-        return cachedTemperatureValue;  
+        return cachedTemperatureValue;
     }
-    
-    get_humidity(args)
-    {
+
+    get_humidity(args) {
         const currentTime = Date.now();
         if (currentTime - lastReadTime2 > 500) {
             GetAHT20();
             lastReadTime2 = currentTime;
         }
-        return cachedHumidityValue;  
+        return cachedHumidityValue;
     }
 
 
     get_ultrasonic(args) {
         const currentTime = Date.now();
-        if (currentTime - lastReadTime1 > 100){
+        if (currentTime - lastReadTime1 > 100) {
             GetUltrasonic();
             lastReadTime1 = Date.now();
         }
         return cachedUltrasonicValue;
     }
-    
+
+    Set_APDS9960_Mode(args) {
+        try {
+
+            if (Cast.toString(args.MODE) == "Proximity") {
+                i2cBus.writeByteSync(DEVICE_ADDR, ENABLE_REG, 0x05); // Enable proximity mode
+                APDSMode = 1;
+      
+            } else if (Cast.toString(args.MODE) == "Gesture") {
+                i2cBus.writeByteSync(DEVICE_ADDR, ENABLE_REG, 0x41); // Enable gesture mode
+
+                // Gesture configuration registers
+                i2cBus.writeByteSync(DEVICE_ADDR, 0xA0, 0x01); // GPENTH
+                i2cBus.writeByteSync(DEVICE_ADDR, 0xA1, 0x00); // GEXTH
+                i2cBus.writeByteSync(DEVICE_ADDR, 0xA2, 0x01); // GCONF1
+                i2cBus.writeByteSync(DEVICE_ADDR, 0xA3, 0x02); // GCONF2
+                i2cBus.writeByteSync(DEVICE_ADDR, 0xA6, 0x89); // GPULSE
+                i2cBus.writeByteSync(DEVICE_ADDR, GESTURE_MODE_REG, 0x00); // GMODE = 0
+                i2cBus.writeByteSync(DEVICE_ADDR, GESTURE_MODE_REG, 0x01); // Enable continuous gesture mode
+
+                APDSMode = 2;
+            } else if (Cast.toString(args.MODE) == "Color") {
+                i2cBus.writeByteSync(DEVICE_ADDR, ENABLE_REG, 0x02); // Enable color sensor
+                APDSMode = 3;
+           
+            }
+        } catch (error) {
+            console.error("Error setting mode:", error);
+        
+        }
+    }
+
+
+
+    get_proximity() {
+        if (APDSMode == 1) {
+            try {
+                return i2cBus.readByteSync(DEVICE_ADDR, PROXIMITY_REG);
+            } catch (error) {
+                console.error("Error reading proximity:", error);
+                return null;
+            }
+        }
+        return "Wrong Mode";
+    }
+
+
+    get_gesture() {
+        try {
+            let buffer = Buffer.alloc(4);
+            i2cBus.readI2cBlockSync(DEVICE_ADDR, GESTURE_DATA_REG, 4, buffer);
+
+            let [up, down, left, right] = buffer;
+            let avg = (up + down + left + right) / 4;
+            let offset = 5; // Sensitivity adjustment
+
+            let highThreshold = avg + offset;
+            let lowThreshold = avg - offset;
+
+            if (Math.max(up, down, left, right) < highThreshold) {
+                return "NO_GESTURE"; // Ignore weak signals
+            }
+
+            if (up > highThreshold && up > down && up > left && up > right) return "UP";
+            if (down > highThreshold && down > up && down > left && down > right) return "DOWN";
+            if (left > highThreshold && left > right && left > up && left > down) return "LEFT";
+            if (right > highThreshold && right > left && right > up && right > down) return "RIGHT";
+
+            return "NO_GESTURE";
+        } catch (error) {
+            console.error("Error reading gesture:", error);
+            return null;
+        }
+    }
+    get_color() {
+        if (APDSMode == 3) {
+            try {
+                let buffer = Buffer.alloc(8);
+                i2cBus.readI2cBlockSync(DEVICE_ADDR, 0x94, 8, buffer);
+
+                let clear = buffer[0] | (buffer[1] << 8);
+                let red = buffer[2] | (buffer[3] << 8);
+                let green = buffer[4] | (buffer[5] << 8);
+                let blue = buffer[6] | (buffer[7] << 8);
+
+                let sum = red + green + blue; // Ignore 'clear' for better color ratio
+
+                if (sum === 0) return [0, 0, 0]; // Prevent division by zero
+
+                let redRatio = red / sum;
+                let greenRatio = green / sum;
+                let blueRatio = blue / sum;
+
+                const color = [
+                    Math.round(redRatio * 255),
+                    Math.round(greenRatio * 255),
+                    Math.round(blueRatio * 255)
+                ];
+                return color;
+            } catch (error) {
+                console.error("Error reading color:", error);
+ 
+                return null;
+            }
+        }
+        return "Wrong Mode";
+    }
+
+
 }
 
 module.exports = Scratch3PiSTEMHATBlocks;
